@@ -118,6 +118,31 @@
     .inline-viewer-title{
       color:#6b5d50;font-size:1.25em;font-weight:900;letter-spacing:.2px;line-height:1.2;
     }
+
+    /* 페이지 넘김(비급여 1/2 등) */
+    .inline-viewer-actions{display:flex;align-items:center;gap:10px;}
+    .inline-viewer-pager{display:inline-flex;align-items:center;gap:8px;}
+    .pager-btn{
+      width:36px;height:36px;
+      border-radius:999px;
+      border:2px solid rgba(107,93,80,0.22);
+      background:rgba(255,255,255,0.95);
+      color:#6b5d50;
+      font-weight:900;
+      font-size:18px;
+      line-height:1;
+      cursor:pointer;
+      box-shadow:0 4px 12px rgba(0,0,0,0.12);
+    }
+    .pager-btn:disabled{opacity:0.35;cursor:not-allowed;box-shadow:none;}
+    .pager-label{
+      min-width:56px;
+      text-align:center;
+      font-weight:900;
+      color:#6b5d50;
+      font-size:0.95em;
+    }
+
     .inline-viewer-close{
       border:none;
       border-radius:999px;
@@ -245,14 +270,10 @@
         </div>
       </div>
 
-      <!-- ★ 보조기 착용 안내 (서브메뉴) ★ -->
       <div class="nav-item">
-        <button class="nav-btn has-sub" onclick="toggleSubMenu('brace', this)">
-          🩹 보조기 착용 안내 ▾
+        <button class="nav-btn" data-title="🩹 쿨밴드·코반 착용 후 붓기 관리" data-img="쿨밴드코반붓기관리.png" onclick="openInlineViewer(this)">
+          🩹 쿨밴드·코반 착용 후 붓기 관리
         </button>
-        <div class="sub-menu" id="sub-brace">
-          <button class="sub-btn" data-title="🩹 쿨밴드·코반 착용 후 붓기 관리" data-img="쿨밴드코반붓기관리.png" onclick="openInlineViewer(this)">쿨밴드·코반 착용 후 붓기 관리</button>
-        </div>
       </div>
 
       <!-- ★ 특수 치료 안내 (서브메뉴) ★ -->
@@ -269,7 +290,7 @@
       </div>
 
       <div class="nav-item">
-        <button class="nav-btn" data-title="💰 비급여 항목 안내 (1)" data-img="비급여항목안내 (1).png" onclick="openInlineViewer(this)">
+        <button class="nav-btn" data-title="💰 비급여 항목 안내" data-pages="비급여항목안내 (1).png|비급여항목안내 (2).png" data-img="비급여항목안내 (1).png" onclick="openInlineViewer(this)">
           💰 비급여 항목 안내
         </button>
       </div>
@@ -306,12 +327,20 @@
     let currentSubMenuEl  = null;
     let currentSubMenuBtn = null;
 
+    // 이미지 페이지(넘기기) 지원
+    let currentPages     = null;   // string[] | null
+    let currentPageIndex = 0;
+    let currentBaseTitle = '';
+
     /* 인라인 뷰어만 닫기 (서브메뉴 열림 상태는 유지) */
     function closeInlineViewer(){
       if(currentViewer){
         currentViewer.remove();
         currentViewer = null;
       }
+      currentPages     = null;
+      currentPageIndex = 0;
+      currentBaseTitle = '';
       /* has-sub 버튼(서브메뉴 토글 버튼)의 active는 toggleSubMenu 에서 관리하므로 제외 */
       document.querySelectorAll('.nav-btn:not(.has-sub), .sub-btn').forEach(b => b.classList.remove('active'));
     }
@@ -347,7 +376,14 @@
     /* 이미지 인라인 뷰어 열기 */
     function openInlineViewer(button){
       const title = button.dataset.title || '';
-      const src   = button.dataset.img   || '';
+
+      const pages = (button.dataset.pages || '')
+        .split('|')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      const hasPages = pages.length > 1;
+      const src = hasPages ? pages[0] : (button.dataset.img || '');
 
       if(button.classList.contains('active')){
         closeInlineViewer();
@@ -364,13 +400,26 @@
 
       const viewer = document.createElement('div');
       viewer.className = 'inline-viewer';
+
+      // 전역 페이지 상태 세팅
+      currentPages     = hasPages ? pages : null;
+      currentPageIndex = 0;
+      currentBaseTitle = title;
+
       viewer.innerHTML = `
         <div class="inline-viewer-inner">
           <div class="inline-viewer-head">
-            <div class="inline-viewer-title">${escapeHtml(title)}</div>
-            <button class="inline-viewer-close" type="button" onclick="closeInlineViewerKeepSub()">×</button>
+            <div class="inline-viewer-title" id="viewerTitle">${escapeHtml(title)}</div>
+            <div class="inline-viewer-actions">
+              <div class="inline-viewer-pager" id="viewerPager" style="display:${hasPages ? 'inline-flex' : 'none'}">
+                <button class="pager-btn" type="button" onclick="viewerPrev()" aria-label="이전">‹</button>
+                <span class="pager-label" id="pagerLabel">1/${hasPages ? pages.length : 1}</span>
+                <button class="pager-btn" type="button" onclick="viewerNext()" aria-label="다음">›</button>
+              </div>
+              <button class="inline-viewer-close" type="button" onclick="closeInlineViewerKeepSub()">×</button>
+            </div>
           </div>
-          <img class="inline-viewer-img" src="${encodeURI(src)}" alt="${escapeHtml(title)}">
+          <img class="inline-viewer-img" id="viewerImg" src="${encodeURI(src)}" alt="${escapeHtml(title)}">
         </div>
       `;
 
@@ -378,7 +427,47 @@
       navItem.insertAdjacentElement('afterend', viewer);
       currentViewer = viewer;
 
+      // 페이지(넘기기) UI 갱신
+      if(hasPages){
+        setViewerPage(0);
+      }
+
       setTimeout(() => viewer.scrollIntoView({ behavior:'smooth', block:'nearest' }), 50);
+    }
+
+    function setViewerPage(index){
+      if(!currentViewer || !currentPages) return;
+      const max = currentPages.length - 1;
+      currentPageIndex = Math.max(0, Math.min(index, max));
+
+      const imgEl   = currentViewer.querySelector('#viewerImg');
+      const titleEl = currentViewer.querySelector('#viewerTitle');
+      const labelEl = currentViewer.querySelector('#pagerLabel');
+      const pagerEl = currentViewer.querySelector('#viewerPager');
+      const btns    = pagerEl ? pagerEl.querySelectorAll('button.pager-btn') : [];
+
+      const src = currentPages[currentPageIndex];
+      if(imgEl) imgEl.src = encodeURI(src);
+
+      // 예: "비급여 항목 안내 (1)" 처럼 보이게
+      if(titleEl) titleEl.textContent = `${currentBaseTitle} (${currentPageIndex + 1})`;
+      if(labelEl) labelEl.textContent = `${currentPageIndex + 1}/${currentPages.length}`;
+
+      // 버튼 비활성화 처리
+      if(btns.length === 2){
+        btns[0].disabled = currentPageIndex === 0;
+        btns[1].disabled = currentPageIndex === max;
+      }
+    }
+
+    function viewerPrev(){
+      if(!currentPages) return;
+      setViewerPage(currentPageIndex - 1);
+    }
+
+    function viewerNext(){
+      if(!currentPages) return;
+      setViewerPage(currentPageIndex + 1);
     }
 
     /* × 버튼 전용: 뷰어만 닫고 서브메뉴 헤더 active 복원 */
